@@ -1,6 +1,7 @@
 import puppeteer from 'puppeteer-core';
 import { PDFDocument } from 'pdf-lib';
 import config from './config.js';
+import { validateNavigation, createRequestInterceptor } from './security.js';
 
 /** @type {import('puppeteer-core').Browser | null} */
 let browser = null;
@@ -85,11 +86,20 @@ async function renderPage(pageEntry, logger, pageIndex, timeout = config.rendere
     'Rendering page',
   );
 
+  // Validate navigation URL against SSRF allowlist before opening the browser tab
+  if (pageEntry.url) {
+    await validateNavigation(pageEntry.url, logger);
+  }
+
   const pageStart = Date.now();
   const instance = await getBrowser();
   const page = await instance.newPage();
 
   try {
+    // Intercept all sub-resource requests (images, CSS, fonts, iframes)
+    await page.setRequestInterception(true);
+    page.on('request', createRequestInterceptor(logger));
+
     const { waitUntil, delay, ...pdfOpts } = pageEntry.options || {};
     const navigation = waitUntil || 'networkidle0';
 

@@ -8,6 +8,11 @@ services:
       - CONCURRENCY=3
       - TIMEOUT=30000
       - LOG_LEVEL=info
+      # SSRF Protection — set ALLOWED_HOSTS to enable
+      # - ALLOWED_HOSTS=*.example.com,cdn.example.net
+      # - CDN_HOSTS=cdn.example.net
+      # - ALLOWED_PATH_PATTERNS=/reports/*/print,/dashboard/*/print,/build/*
+      # - SSRF_PROTECTION=disabled  # emergency kill switch
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
       interval: 30s

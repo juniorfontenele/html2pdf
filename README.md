@@ -14,6 +14,7 @@ Stateless HTTP microservice that converts HTML to PDF using Google Chrome Stable
 - Per-page options (margins, header/footer, format, scale)
 - Per-page `skipPages` for discarding placeholder pages during merge
 - Tagged PDFs with link annotations preserved through merge
+- **SSRF protection** — host allowlist, path allowlist, protocol enforcement, dangerous IP blocking, and Puppeteer request interception
 - Structured JSON logging with UUID request ID correlation
 - Configurable concurrency and timeouts
 - Schema validation on all requests (Fastify + Ajv)
@@ -125,6 +126,7 @@ Each page requires either `html` (raw HTML string) or `url` (navigated by Chrome
 | Status | Cause |
 |---|---|
 | `400` | Invalid request body (schema validation) |
+| `422` | SSRF protection blocked the URL |
 | `503` | Concurrency limit reached |
 | `500` | Render failure or internal error |
 
@@ -156,6 +158,35 @@ Environment variables:
 | `CONCURRENCY` | `3` | Max concurrent page renders |
 | `TIMEOUT` | `30000` | Per-page render timeout (ms) |
 | `LOG_LEVEL` | `info` | Log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`) |
+
+### SSRF Protection
+
+| Variable | Default | Description |
+|---|---|---|
+| `ALLOWED_HOSTS` | *(empty)* | Comma-separated list of allowed hosts. Supports wildcards (`*.example.com`). **Empty = no restriction** (backward-compatible). |
+| `CDN_HOSTS` | *(empty)* | Comma-separated CDN hosts that skip path validation (any path allowed). Must also be in `ALLOWED_HOSTS`. |
+| `ALLOWED_PATH_PATTERNS` | *(empty)* | Comma-separated glob patterns for allowed paths on non-CDN hosts (e.g. `/reports/*/print,/build/*`). **Empty = no path restriction**. |
+| `SSRF_PROTECTION` | *(enabled)* | Set to `disabled` to bypass all SSRF checks (emergency kill switch). |
+
+When `ALLOWED_HOSTS` is configured, the service enforces:
+
+1. **Protocol validation** — only `https:` in production (`http:` also allowed when `NODE_ENV=development`)
+2. **Host allowlist** — navigation and all sub-resource requests (images, CSS, fonts, iframes) are checked against the allowlist
+3. **Dangerous IP blocking** — DNS resolution is performed and IPs in `127.0.0.0/8`, `169.254.0.0/16`, `0.0.0.0`, and `::1` are rejected (prevents SSRF to cloud metadata endpoints and loopback services)
+4. **Path allowlist** — non-CDN hosts are restricted to specific path patterns (prevents access to unintended routes on allowed hosts)
+5. **Request interception** — Puppeteer intercepts every sub-resource request during page rendering and enforces the same allowlist (covers `<img>`, `<iframe>`, `<link>`, `<script>`, CSS `@import`, `@font-face`, etc.)
+
+Blocked navigation URLs return HTTP `422`. Blocked sub-resource requests are silently aborted (logged at `warn` level) without failing the overall render.
+
+**Example configuration:**
+
+```bash
+docker run -p 3000:3000 \
+  -e ALLOWED_HOSTS="*.example.com,cdn.example.net" \
+  -e CDN_HOSTS="cdn.example.net" \
+  -e ALLOWED_PATH_PATTERNS="/reports/*/print,/dashboard/*/print,/build/*" \
+  jftecnologia/html2pdf
+```
 
 ## Multi-page PDFs
 
@@ -232,6 +263,12 @@ All requests are logged as structured JSON with a UUID `reqId` for end-to-end co
 {"level":30,"time":1712600001000,"reqId":"a1b2c3d4-...","msg":"Page rendered","page":1,"durationMs":1200,"sizeBytes":45000}
 ```
 
+SSRF violations are logged at `warn` level with the blocked URL, reason, and request ID:
+
+```json
+{"level":40,"time":1712600002000,"reqId":"a1b2c3d4-...","msg":"SSRF: blocked host","url":"http://evil.com/steal","hostname":"evil.com"}
+```
+
 Set `LOG_LEVEL=debug` for verbose output including navigation details and delay timing.
 
 ## Development
@@ -240,6 +277,7 @@ Set `LOG_LEVEL=debug` for verbose output including navigation details and delay 
 npm install
 npm run dev     # Start with --watch (auto-restart on changes)
 npm run lint    # ESLint
+npm test        # Unit + integration tests (node:test)
 ```
 
 ## Project Structure
@@ -247,9 +285,13 @@ npm run lint    # ESLint
 ```
 src/
 ├── server.js    # Fastify app, routes, error handler, lifecycle
-├── config.js    # Environment variable parsing
+├── config.js    # Environment variable parsing (incl. security settings)
 ├── schemas.js   # JSON Schema for request validation
-└── renderer.js  # Puppeteer browser management, PDF rendering, merging
+├── renderer.js  # Puppeteer browser management, PDF rendering, merging
+└── security.js  # SSRF protection: host/path/IP validation, request interception
+tests/
+├── security.test.js              # Unit tests for pure validation functions
+└── security-integration.test.js  # Integration tests with configured allowlists
 ```
 
 ## License

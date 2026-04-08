@@ -18,8 +18,20 @@ jobs:
       - run: npm ci
       - run: npm run lint
 
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
   test:
-    name: Test
+    name: Integration Tests (Docker)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,3 +122,89 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker rm -f html2pdf || true
+
+  ssrf-tests:
+    name: SSRF Protection Tests (Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t html2pdf:ssrf-test .
+
+      - name: Start with SSRF protection enabled
+        run: |
+          docker run -d --name html2pdf-ssrf -p 3001:3000 \
+            -e ALLOWED_HOSTS="*.example.com,cdn.example.net" \
+            -e CDN_HOSTS="cdn.example.net" \
+            -e ALLOWED_PATH_PATTERNS="/reports/*/print,/dashboard/*/print,/build/*" \
+            html2pdf:ssrf-test
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3001/health > /dev/null 2>&1 && break
+            sleep 2
+          done
+
+      - name: "SSRF: allowed host + path renders PDF"
+        run: |
+          # example.com is in ALLOWED_HOSTS and renders real HTML
+          curl -sf -X POST http://localhost:3001/render \
+            -H 'Content-Type: application/json' \
+            -d '{"pages":[{"url":"https://example.com/reports/1/print"}]}' -o /tmp/ssrf-allowed.pdf
+          [ "$(file -b --mime-type /tmp/ssrf-allowed.pdf)" = "application/pdf" ] && echo "SSRF allowed host OK"
+
+      - name: "SSRF: blocked host returns 422"
+        run: |
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3001/render \
+            -H 'Content-Type: application/json' \
+            -d '{"pages":[{"url":"https://evil.com/steal"}]}')
+          [ "$CODE" = "422" ] && echo "SSRF blocked host OK (422)" || { echo "Expected 422, got $CODE"; exit 1; }
+
+      - name: "SSRF: blocked path returns 422"
+        run: |
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3001/render \
+            -H 'Content-Type: application/json' \
+            -d '{"pages":[{"url":"https://app.example.com/admin/secret"}]}')
+          [ "$CODE" = "422" ] && echo "SSRF blocked path OK (422)" || { echo "Expected 422, got $CODE"; exit 1; }
+
+      - name: "SSRF: file:// protocol returns 422"
+        run: |
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3001/render \
+            -H 'Content-Type: application/json' \
+            -d '{"pages":[{"url":"file:///etc/passwd"}]}')
+          [ "$CODE" = "422" ] && echo "SSRF blocked file:// OK (422)" || { echo "Expected 422, got $CODE"; exit 1; }
+
+      - name: "SSRF: cloud metadata IP returns 422"
+        run: |
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3001/render \
+            -H 'Content-Type: application/json' \
+            -d '{"pages":[{"url":"http://169.254.169.254/latest/meta-data/"}]}')
+          [ "$CODE" = "422" ] && echo "SSRF blocked metadata OK (422)" || { echo "Expected 422, got $CODE"; exit 1; }
+
+      - name: "SSRF: HTML with blocked sub-resource still renders"
+        run: |
+          # The <img> to evil.com should be silently aborted, but the PDF should still be generated
+          curl -sf -X POST http://localhost:3001/render \
+            -H 'Content-Type: application/json' \
+            -d '{"pages":[{"html":"<h1>Safe</h1><img src=\"http://evil.com/tracker.png\">"}]}' -o /tmp/ssrf-subresource.pdf
+          [ "$(file -b --mime-type /tmp/ssrf-subresource.pdf)" = "application/pdf" ] && echo "SSRF sub-resource blocked but PDF OK"
+
+      - name: "SSRF: no restriction when ALLOWED_HOSTS empty"
+        run: |
+          docker rm -f html2pdf-ssrf || true
+          docker run -d --name html2pdf-nossrf -p 3002:3000 html2pdf:ssrf-test
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3002/health > /dev/null 2>&1 && break
+            sleep 2
+          done
+          # Should work without restriction
+          curl -sf -X POST http://localhost:3002/render \
+            -H 'Content-Type: application/json' \
+            -d '{"pages":[{"url":"https://example.com"}]}' -o /tmp/ssrf-norestriction.pdf
+          [ "$(file -b --mime-type /tmp/ssrf-norestriction.pdf)" = "application/pdf" ] && echo "No restriction OK"
+          docker rm -f html2pdf-nossrf || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f html2pdf-ssrf || true
+          docker rm -f html2pdf-nossrf || true

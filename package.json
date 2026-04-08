@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "test": "node --test 'tests/security.test.js' && ALLOWED_HOSTS='*.myapp.com,cdn.example.net' CDN_HOSTS='cdn.example.net' ALLOWED_PATH_PATTERNS='/reports/*/print,/dashboard/*/print,/build/*' node --test 'tests/security-integration.test.js'"
   },
   "author": {
     "name": "Junior Fontenele",
