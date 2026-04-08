@@ -1,0 +1,41 @@
+{
+  "name": "@juniorfontenele/html2pdf",
+  "version": "1.0.0",
+  "description": "Stateless HTTP microservice that converts HTML to PDF using Chrome Stable and Puppeteer",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "lint": "eslint src/"
+  },
+  "author": {
+    "name": "Junior Fontenele",
+    "email": "git@juniorfontenele.com.br"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/juniorfontenele/html2pdf.git"
+  },
+  "keywords": [
+    "html2pdf",
+    "pdf",
+    "puppeteer",
+    "chrome",
+    "microservice",
+    "docker"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "fastify": "^5.3.3",
+    "pdf-lib": "^1.17.1",
+    "puppeteer-core": "^24.9.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.2.0"
+  }
+}

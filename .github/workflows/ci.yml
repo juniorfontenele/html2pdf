@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t html2pdf:test .
+
+      - name: Start container
+        run: docker run -d --name html2pdf -p 3000:3000 html2pdf:test
+
+      - name: Wait for service
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
+              echo "Service is ready"
+              break
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+
+      - name: Health check
+        run: |
+          response=$(curl -sf http://localhost:3000/health)
+          echo "$response"
+          echo "$response" | node -e "
+            const data = JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8'));
+            if (data.status !== 'ok') { console.error('Health check failed'); process.exit(1); }
+            console.log('Health check passed - Browser:', data.version);
+          "
+
+      - name: Test PDF generation
+        run: |
+          curl -sf -X POST http://localhost:3000/render \
+            -H "Content-Type: application/json" \
+            -d '{"pages": [{"html": "<html><body><h1>Test</h1></body></html>"}]}' \
+            -o /tmp/test.pdf
+
+          file_type=$(file -b --mime-type /tmp/test.pdf)
+          if [ "$file_type" != "application/pdf" ]; then
+            echo "Expected application/pdf, got $file_type"
+            exit 1
+          fi
+          echo "PDF generation test passed ($(wc -c < /tmp/test.pdf) bytes)"
+
+      - name: Test clickable link with custom text
+        run: |
+          curl -sf -X POST http://localhost:3000/render \
+            -H "Content-Type: application/json" \
+            -d '{"pages": [{"html": "<html><body><a href=\"https://example.com\">Click here</a></body></html>"}]}' \
+            -o /tmp/test-link.pdf
+
+          file_type=$(file -b --mime-type /tmp/test-link.pdf)
+          if [ "$file_type" != "application/pdf" ]; then
+            echo "Expected application/pdf, got $file_type"
+            exit 1
+          fi
+          echo "Link test passed ($(wc -c < /tmp/test-link.pdf) bytes)"
+
+      - name: Test multi-page merge
+        run: |
+          curl -sf -X POST http://localhost:3000/render \
+            -H "Content-Type: application/json" \
+            -d '{"pages": [{"html": "<html><body><h1>Page 1</h1></body></html>"}, {"html": "<html><body><h1>Page 2</h1></body></html>"}]}' \
+            -o /tmp/test-merge.pdf
+
+          file_type=$(file -b --mime-type /tmp/test-merge.pdf)
+          if [ "$file_type" != "application/pdf" ]; then
+            echo "Expected application/pdf, got $file_type"
+            exit 1
+          fi
+          echo "Multi-page merge test passed ($(wc -c < /tmp/test-merge.pdf) bytes)"
+
+      - name: Test validation error
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/render \
+            -H "Content-Type: application/json" \
+            -d '{"pages": []}')
+
+          if [ "$status" != "400" ]; then
+            echo "Expected 400, got $status"
+            exit 1
+          fi
+          echo "Validation test passed (got 400 as expected)"
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f html2pdf || true
