@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.0](https://github.com/juniorfontenele/html2pdf/compare/v1.3.0...v1.4.0) (2026-04-08)
+
+
+### Features
+
+* **security:** add SSRF protection with host/path allowlist and request interception ([07d6e93](https://github.com/juniorfontenele/html2pdf/commit/07d6e93bc3b10b7a461ff86dca91723c8ca9d3ab))
+
+
+### Bug Fixes
+
+* **ci:** correct SSRF test failures in CI pipeline ([6183aaf](https://github.com/juniorfontenele/html2pdf/commit/6183aaf6a216fb0a7280bd27606b3ec676b62168))
+
 ## [1.3.0](https://github.com/juniorfontenele/html2pdf/compare/v1.2.0...v1.3.0) (2026-04-08)
 
 
