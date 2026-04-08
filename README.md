@@ -9,9 +9,11 @@ Stateless HTTP microservice that converts HTML to PDF using Google Chrome Stable
 
 ## Features
 
-- HTML in, PDF out — no external dependencies
-- Multi-page support with automatic PDF merging
+- HTML or URL in, PDF out — no external dependencies
+- Multi-page support with automatic PDF merging (via pdf-lib)
 - Per-page options (margins, header/footer, format)
+- Per-page `skipPages` for discarding placeholder pages during merge
+- Tagged PDFs with link annotations preserved through merge
 - Configurable concurrency and timeouts
 - Health check endpoint
 - Docker-ready with Chrome Stable pre-installed
@@ -38,6 +40,8 @@ Renders one or more HTML pages to a single PDF.
 
 **Request body:**
 
+Each page requires either `html` (raw HTML string) or `url` (navigated by Chrome).
+
 ```json
 {
   "pages": [
@@ -51,6 +55,9 @@ Renders one or more HTML pages to a single PDF.
         "footerTemplate": "",
         "preferCSSPageSize": false,
         "scale": 1,
+        "tagged": true,
+        "waitUntil": "networkidle0",
+        "delay": 2000,
         "margin": {
           "top": "25mm",
           "right": "15mm",
@@ -63,7 +70,16 @@ Renders one or more HTML pages to a single PDF.
 }
 ```
 
-All `options` fields are optional. Defaults:
+**Page fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `html` | string | Raw HTML content (mutually exclusive with `url`) |
+| `url` | string | URL to navigate to (mutually exclusive with `html`) |
+| `skipPages` | int[] | 1-based page indices to discard before merging |
+| `options` | object | Puppeteer PDF options (all optional) |
+
+**Options defaults:**
 
 | Option | Default |
 |---|---|
@@ -74,6 +90,9 @@ All `options` fields are optional. Defaults:
 | `footerTemplate` | `<div></div>` |
 | `preferCSSPageSize` | `false` |
 | `scale` | `1` |
+| `tagged` | `true` |
+| `waitUntil` | `networkidle0` |
+| `delay` | `0` |
 | `margin` | `0mm` all sides |
 
 **Response:** `application/pdf` binary
@@ -131,15 +150,47 @@ Send multiple pages to generate a merged PDF:
 }
 ```
 
-## Images
+## URL Rendering
 
-For self-contained PDFs, embed images as base64 data URIs:
+Navigate to a URL instead of providing raw HTML. Useful when the page is a full web app (React, Vue, etc.) that needs JavaScript execution:
 
-```html
-<img src="data:image/png;base64,iVBOR..." />
+```json
+{
+  "pages": [
+    {
+      "url": "http://localhost:8000/reports/1/print?section=cover",
+      "options": { "delay": 2000 }
+    }
+  ]
+}
 ```
 
-This ensures images render correctly without external network access.
+## Skip Pages
+
+Discard specific pages (1-based) from a rendered document before merging. Useful for two-pass rendering where a body PDF has a blank placeholder page 1 for correct page numbering:
+
+```json
+{
+  "pages": [
+    {
+      "url": "http://localhost:8000/reports/1/print?section=cover",
+      "options": { "margin": { "top": "0mm", "right": "0mm", "bottom": "0mm", "left": "0mm" } }
+    },
+    {
+      "url": "http://localhost:8000/reports/1/print?section=body",
+      "skipPages": [1],
+      "options": {
+        "displayHeaderFooter": true,
+        "headerTemplate": "<div>...</div>",
+        "footerTemplate": "<div>...</div>",
+        "margin": { "top": "25mm", "bottom": "18mm" }
+      }
+    }
+  ]
+}
+```
+
+The cover renders as page 1, and the body's blank placeholder is discarded. Chrome's `pageNumber` counter still counts correctly because each document is rendered independently.
 
 ## License
 

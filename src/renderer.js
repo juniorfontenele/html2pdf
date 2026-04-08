@@ -18,6 +18,7 @@ const DEFAULT_OPTIONS = {
   footerTemplate: '<div></div>',
   margin: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' },
   scale: 1,
+  tagged: true,
 };
 
 /**
@@ -131,23 +132,38 @@ async function renderPage(pageEntry, logger, pageIndex, timeout = config.rendere
 /**
  * Merge multiple PDF buffers into a single PDF.
  *
- * @param {Buffer[]} buffers
+ * Each entry can optionally specify page indices to skip (1-based).
+ * This is used for two-pass rendering where the body PDF has a blank
+ * placeholder page 1 that must be discarded during merge.
+ *
+ * @param {{ buffer: Buffer, skipPages?: number[] }[]} entries
  * @param {import('fastify').FastifyBaseLogger} logger
  * @returns {Promise<Buffer>}
  */
-async function mergePdfs(buffers, logger) {
-  if (buffers.length === 1) {
-    return buffers[0];
+async function mergePdfs(entries, logger) {
+  if (entries.length === 1 && !entries[0].skipPages?.length) {
+    return entries[0].buffer;
   }
 
-  logger.info({ documents: buffers.length }, 'Merging PDFs');
+  logger.info({ documents: entries.length }, 'Merging PDFs');
   const mergeStart = Date.now();
 
   const merged = await PDFDocument.create();
 
-  for (const buffer of buffers) {
-    const doc = await PDFDocument.load(buffer);
-    const pages = await merged.copyPages(doc, doc.getPageIndices());
+  for (const entry of entries) {
+    const doc = await PDFDocument.load(entry.buffer);
+    const allIndices = doc.getPageIndices();
+    const skip = new Set((entry.skipPages || []).map((p) => p - 1)); // 1-based → 0-based
+    const indices = allIndices.filter((i) => !skip.has(i));
+
+    if (skip.size > 0) {
+      logger.info(
+        { totalPages: allIndices.length, skipped: skip.size, kept: indices.length },
+        'Filtering pages',
+      );
+    }
+
+    const pages = await merged.copyPages(doc, indices);
     for (const page of pages) {
       merged.addPage(page);
     }
@@ -178,14 +194,14 @@ export async function render(pages, logger) {
   const sources = pages.map((p) => (p.url ? 'url' : 'html'));
   logger.info({ pageCount: pages.length, sources }, 'Starting render');
 
-  const buffers = [];
+  const entries = [];
 
   for (let i = 0; i < pages.length; i++) {
     const buffer = await renderPage(pages[i], logger, i);
-    buffers.push(buffer);
+    entries.push({ buffer, skipPages: pages[i].skipPages });
   }
 
-  const result = await mergePdfs(buffers, logger);
+  const result = await mergePdfs(entries, logger);
 
   const durationMs = Date.now() - startTime;
   logger.info(
