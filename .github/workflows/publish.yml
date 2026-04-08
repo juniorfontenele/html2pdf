@@ -1,0 +1,86 @@
+name: Release & Publish
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  DOCKER_IMAGE: jftecnologia/html2pdf
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          release-type: node
+
+  publish:
+    name: Publish Docker Image
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and test
+        run: |
+          docker build -t ${{ env.DOCKER_IMAGE }}:test .
+          docker run -d --name html2pdf -p 3000:3000 ${{ env.DOCKER_IMAGE }}:test
+
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3000/health > /dev/null 2>&1 && break
+            sleep 2
+          done
+
+          curl -sf http://localhost:3000/health | node -e "
+            const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+            if (d.status !== 'ok') process.exit(1);
+            console.log('Health OK -', d.version);
+          "
+
+          curl -sf -X POST http://localhost:3000/render \
+            -H 'Content-Type: application/json' \
+            -d '{"pages":[{"html":"<h1>Test</h1>"}]}' \
+            -o /tmp/test.pdf
+          [ "$(file -b --mime-type /tmp/test.pdf)" = "application/pdf" ] && echo "PDF OK"
+
+          docker rm -f html2pdf
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.release-please.outputs.tag_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-please.outputs.tag_name }}
+            type=semver,pattern={{major}},value=${{ needs.release-please.outputs.tag_name }}
+            type=raw,value=latest
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
