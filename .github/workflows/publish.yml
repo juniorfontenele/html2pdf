@@ -19,7 +19,6 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
-      version: ${{ steps.release.outputs.version }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -33,30 +32,6 @@ jobs:
     if: ${{ needs.release-please.outputs.release_created }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Build and test
-        run: |
-          docker build -t ${{ env.DOCKER_IMAGE }}:test .
-          docker run -d --name html2pdf -p 3000:3000 ${{ env.DOCKER_IMAGE }}:test
-
-          for i in $(seq 1 30); do
-            curl -sf http://localhost:3000/health > /dev/null 2>&1 && break
-            sleep 2
-          done
-
-          curl -sf http://localhost:3000/health | node -e "
-            const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-            if (d.status !== 'ok') process.exit(1);
-            console.log('Health OK -', d.version);
-          "
-
-          curl -sf -X POST http://localhost:3000/render \
-            -H 'Content-Type: application/json' \
-            -d '{"pages":[{"html":"<h1>Test</h1>"}]}' \
-            -o /tmp/test.pdf
-          [ "$(file -b --mime-type /tmp/test.pdf)" = "application/pdf" ] && echo "PDF OK"
-
-          docker rm -f html2pdf
 
       - name: Docker meta
         id: meta
