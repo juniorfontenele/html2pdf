@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
     branches: [master]
+  workflow_dispatch:
 
 jobs:
   lint:
@@ -34,36 +35,77 @@ jobs:
             sleep 2
           done
 
-      - name: Integration tests
+      - name: Health check
         run: |
-          # Health
           curl -sf http://localhost:3000/health | node -e "
             const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
             if (d.status !== 'ok') process.exit(1);
             console.log('Health OK -', d.version);
           "
 
-          # PDF generation
+      - name: PDF from HTML
+        run: |
           curl -sf -X POST http://localhost:3000/render \
             -H 'Content-Type: application/json' \
             -d '{"pages":[{"html":"<h1>Test</h1>"}]}' -o /tmp/test.pdf
           [ "$(file -b --mime-type /tmp/test.pdf)" = "application/pdf" ] && echo "PDF OK"
 
-          # Link with custom text
+      - name: PDF from URL
+        run: |
+          curl -sf -X POST http://localhost:3000/render \
+            -H 'Content-Type: application/json' \
+            -d '{"pages":[{"url":"https://example.com"}]}' -o /tmp/url.pdf
+          [ "$(file -b --mime-type /tmp/url.pdf)" = "application/pdf" ] && echo "URL PDF OK"
+
+      - name: PDF with waitUntil and delay
+        run: |
+          curl -sf -X POST http://localhost:3000/render \
+            -H 'Content-Type: application/json' \
+            -d '{"pages":[{"html":"<h1>Delayed</h1>","options":{"waitUntil":"load","delay":100}}]}' -o /tmp/delay.pdf
+          [ "$(file -b --mime-type /tmp/delay.pdf)" = "application/pdf" ] && echo "Delay OK"
+
+      - name: Link with custom text
+        run: |
           curl -sf -X POST http://localhost:3000/render \
             -H 'Content-Type: application/json' \
             -d '{"pages":[{"html":"<a href=\"https://example.com\">Click here</a>"}]}' -o /tmp/link.pdf
           [ "$(file -b --mime-type /tmp/link.pdf)" = "application/pdf" ] && echo "Link OK"
 
-          # Multi-page merge
+      - name: Multi-page merge
+        run: |
           curl -sf -X POST http://localhost:3000/render \
             -H 'Content-Type: application/json' \
             -d '{"pages":[{"html":"<h1>P1</h1>"},{"html":"<h1>P2</h1>"}]}' -o /tmp/merge.pdf
           [ "$(file -b --mime-type /tmp/merge.pdf)" = "application/pdf" ] && echo "Merge OK"
 
-          # Validation (400)
+      - name: Mixed HTML and URL merge
+        run: |
+          curl -sf -X POST http://localhost:3000/render \
+            -H 'Content-Type: application/json' \
+            -d '{"pages":[{"html":"<h1>Local</h1>"},{"url":"https://example.com"}]}' -o /tmp/mixed.pdf
+          [ "$(file -b --mime-type /tmp/mixed.pdf)" = "application/pdf" ] && echo "Mixed OK"
+
+      - name: "Validation: empty pages (400)"
+        run: |
           [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/render \
             -H 'Content-Type: application/json' -d '{"pages":[]}')" = "400" ] && echo "Validation OK"
+
+      - name: "Validation: missing html and url (400)"
+        run: |
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/render \
+            -H 'Content-Type: application/json' -d '{"pages":[{"options":{}}]}')" = "400" ] && echo "Missing fields OK"
+
+      - name: "Validation: invalid waitUntil (400)"
+        run: |
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/render \
+            -H 'Content-Type: application/json' \
+            -d '{"pages":[{"html":"<h1>X</h1>","options":{"waitUntil":"invalid"}}]}')" = "400" ] && echo "Invalid waitUntil OK"
+
+      - name: "Validation: delay out of range (400)"
+        run: |
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/render \
+            -H 'Content-Type: application/json' \
+            -d '{"pages":[{"html":"<h1>X</h1>","options":{"delay":99999}}]}')" = "400" ] && echo "Delay range OK"
 
       - name: Cleanup
         if: always()
