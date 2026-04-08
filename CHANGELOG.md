@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/juniorfontenele/html2pdf/compare/v1.2.0...v1.3.0) (2026-04-08)
+
+
+### Features
+
+* add URL rendering, skipPages, and tagged PDF support ([84d1235](https://github.com/juniorfontenele/html2pdf/commit/84d1235cd15120df33f6491a7d2465d91fff4cd9))
+
 ## [1.2.0](https://github.com/juniorfontenele/html2pdf/compare/v1.1.0...v1.2.0) (2026-04-08)
 
 
