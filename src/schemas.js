@@ -8,9 +8,13 @@ export const renderSchema = {
         minItems: 1,
         items: {
           type: 'object',
-          required: ['html'],
+          oneOf: [
+            { required: ['html'] },
+            { required: ['url'] },
+          ],
           properties: {
             html: { type: 'string', minLength: 1 },
+            url: { type: 'string', minLength: 1 },
             options: {
               type: 'object',
               properties: {
@@ -21,6 +25,11 @@ export const renderSchema = {
                 headerTemplate: { type: 'string' },
                 footerTemplate: { type: 'string' },
                 scale: { type: 'number', minimum: 0.1, maximum: 2 },
+                waitUntil: {
+                  type: 'string',
+                  enum: ['networkidle0', 'networkidle2', 'load', 'domcontentloaded'],
+                },
+                delay: { type: 'integer', minimum: 0, maximum: 30000 },
                 margin: {
                   type: 'object',
                   properties: {

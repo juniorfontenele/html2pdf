@@ -40,14 +40,13 @@ async function getBrowser() {
 }
 
 /**
- * Render a single HTML string to a PDF buffer.
+ * Render a page (from HTML string or URL) to a PDF buffer.
  *
- * @param {string} html
- * @param {object} options - Puppeteer page.pdf() options
+ * @param {{ html?: string, url?: string, options?: object }} pageEntry
  * @param {number} timeout - Timeout in ms
  * @returns {Promise<Buffer>}
  */
-async function renderPage(html, options = {}, timeout = config.renderer.timeout) {
+async function renderPage(pageEntry, timeout = config.renderer.timeout) {
   if (activeTabs >= config.renderer.concurrency) {
     throw Object.assign(new Error('Too many concurrent renders'), { statusCode: 503 });
   }
@@ -57,12 +56,20 @@ async function renderPage(html, options = {}, timeout = config.renderer.timeout)
   const page = await instance.newPage();
 
   try {
-    await page.setContent(html, {
-      waitUntil: 'networkidle0',
-      timeout,
-    });
+    const { waitUntil, delay, ...pdfOpts } = pageEntry.options || {};
+    const navigation = waitUntil || 'networkidle0';
 
-    const pdfOptions = { ...DEFAULT_OPTIONS, ...options };
+    if (pageEntry.url) {
+      await page.goto(pageEntry.url, { waitUntil: navigation, timeout });
+    } else {
+      await page.setContent(pageEntry.html, { waitUntil: navigation, timeout });
+    }
+
+    if (delay && delay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+
+    const pdfOptions = { ...DEFAULT_OPTIONS, ...pdfOpts };
 
     return await page.pdf(pdfOptions);
   } finally {
@@ -99,7 +106,7 @@ async function mergePdfs(buffers) {
 /**
  * Process a full render request (one or more pages → merged PDF).
  *
- * @param {{ html: string, options?: object }[]} pages
+ * @param {{ html?: string, url?: string, options?: object }[]} pages
  * @param {import('fastify').FastifyBaseLogger} logger
  * @returns {Promise<Buffer>}
  */
@@ -111,7 +118,7 @@ export async function render(pages, logger) {
   const buffers = [];
 
   for (const page of pages) {
-    const buffer = await renderPage(page.html, page.options || {});
+    const buffer = await renderPage(page);
     buffers.push(buffer);
   }
 
