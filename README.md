@@ -11,19 +11,33 @@ Stateless HTTP microservice that converts HTML to PDF using Google Chrome Stable
 
 - HTML or URL in, PDF out — no external dependencies
 - Multi-page support with automatic PDF merging (via pdf-lib)
-- Per-page options (margins, header/footer, format)
+- Per-page options (margins, header/footer, format, scale)
 - Per-page `skipPages` for discarding placeholder pages during merge
 - Tagged PDFs with link annotations preserved through merge
+- Structured JSON logging with UUID request ID correlation
 - Configurable concurrency and timeouts
-- Health check endpoint
-- Docker-ready with Chrome Stable pre-installed
+- Schema validation on all requests (Fastify + Ajv)
+- Health check endpoint with browser status
+- Graceful shutdown and auto-reconnect on browser crash
+- Docker-ready with Chrome Stable pre-installed (non-root user)
 - Lightweight and fast (Fastify + puppeteer-core)
 
 ## Quick Start
 
+### Docker Compose (build from source)
+
 ```bash
 docker compose up -d
 ```
+
+### Docker Hub
+
+```bash
+docker pull jftecnologia/html2pdf
+docker run -p 3000:3000 jftecnologia/html2pdf
+```
+
+### Test
 
 ```bash
 curl -X POST http://localhost:3000/render \
@@ -56,6 +70,7 @@ Each page requires either `html` (raw HTML string) or `url` (navigated by Chrome
         "preferCSSPageSize": false,
         "scale": 1,
         "tagged": true,
+        "pageRanges": "1-3",
         "waitUntil": "networkidle0",
         "delay": 2000,
         "margin": {
@@ -79,23 +94,39 @@ Each page requires either `html` (raw HTML string) or `url` (navigated by Chrome
 | `skipPages` | int[] | 1-based page indices to discard before merging |
 | `options` | object | Puppeteer PDF options (all optional) |
 
-**Options defaults:**
+**Options:**
 
-| Option | Default |
-|---|---|
-| `format` | `A4` |
-| `printBackground` | `true` |
-| `displayHeaderFooter` | `false` |
-| `headerTemplate` | `<div></div>` |
-| `footerTemplate` | `<div></div>` |
-| `preferCSSPageSize` | `false` |
-| `scale` | `1` |
-| `tagged` | `true` |
-| `waitUntil` | `networkidle0` |
-| `delay` | `0` |
-| `margin` | `0mm` all sides |
+| Option | Default | Description |
+|---|---|---|
+| `format` | `A4` | Paper format (A4, Letter, etc.) |
+| `printBackground` | `true` | Print background graphics |
+| `displayHeaderFooter` | `false` | Display header and footer |
+| `headerTemplate` | `<div></div>` | HTML template for the header |
+| `footerTemplate` | `<div></div>` | HTML template for the footer |
+| `preferCSSPageSize` | `false` | Give priority to CSS `@page` size over `format` |
+| `scale` | `1` | Scale of the webpage rendering (0.1 – 2) |
+| `tagged` | `true` | Generate tagged (accessible) PDF with link annotations |
+| `pageRanges` | all pages | Page ranges to print, e.g. `"1-3"`, `"1,3,5"` |
+| `waitUntil` | `networkidle0` | Navigation wait condition (`networkidle0`, `networkidle2`, `load`, `domcontentloaded`) |
+| `delay` | `0` | Additional delay in ms after navigation (0 – 30000) |
+| `margin` | `0mm` all sides | Page margins (`top`, `right`, `bottom`, `left`) |
 
 **Response:** `application/pdf` binary
+
+**Error response:**
+
+```json
+{
+  "error": "Error message",
+  "statusCode": 500
+}
+```
+
+| Status | Cause |
+|---|---|
+| `400` | Invalid request body (schema validation) |
+| `503` | Concurrency limit reached |
+| `500` | Render failure or internal error |
 
 ### `GET /health`
 
@@ -120,11 +151,11 @@ Environment variables:
 |---|---|---|
 | `PORT` | `3000` | HTTP port |
 | `HOST` | `0.0.0.0` | Bind address |
-| `BODY_LIMIT` | `52428800` | Max request body size (bytes) |
+| `BODY_LIMIT` | `52428800` | Max request body size in bytes (default 50 MB) |
 | `CHROME_PATH` | `/usr/bin/google-chrome-stable` | Chrome executable path |
 | `CONCURRENCY` | `3` | Max concurrent page renders |
 | `TIMEOUT` | `30000` | Per-page render timeout (ms) |
-| `LOG_LEVEL` | `info` | Log level (trace/debug/info/warn/error/fatal) |
+| `LOG_LEVEL` | `info` | Log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`) |
 
 ## Multi-page PDFs
 
@@ -191,6 +222,35 @@ Discard specific pages (1-based) from a rendered document before merging. Useful
 ```
 
 The cover renders as page 1, and the body's blank placeholder is discarded. Chrome's `pageNumber` counter still counts correctly because each document is rendered independently.
+
+## Logging
+
+All requests are logged as structured JSON with a UUID `reqId` for end-to-end correlation:
+
+```json
+{"level":30,"time":1712600000000,"reqId":"a1b2c3d4-...","msg":"Starting render","pageCount":2,"sources":["url","url"]}
+{"level":30,"time":1712600001000,"reqId":"a1b2c3d4-...","msg":"Page rendered","page":1,"durationMs":1200,"sizeBytes":45000}
+```
+
+Set `LOG_LEVEL=debug` for verbose output including navigation details and delay timing.
+
+## Development
+
+```bash
+npm install
+npm run dev     # Start with --watch (auto-restart on changes)
+npm run lint    # ESLint
+```
+
+## Project Structure
+
+```
+src/
+├── server.js    # Fastify app, routes, error handler, lifecycle
+├── config.js    # Environment variable parsing
+├── schemas.js   # JSON Schema for request validation
+└── renderer.js  # Puppeteer browser management, PDF rendering, merging
+```
 
 ## License
 
