@@ -1,6 +1,6 @@
 {
   "name": "@juniorfontenele/html2pdf",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Stateless HTTP microservice that converts HTML to PDF using Chrome Stable and Puppeteer",
   "main": "src/server.js",
   "type": "module",
