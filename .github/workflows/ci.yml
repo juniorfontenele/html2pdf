@@ -135,9 +135,9 @@ jobs:
       - name: Start with SSRF protection enabled
         run: |
           docker run -d --name html2pdf-ssrf -p 3001:3000 \
-            -e ALLOWED_HOSTS="*.example.com,cdn.example.net" \
+            -e ALLOWED_HOSTS="example.com,*.example.com,cdn.example.net" \
             -e CDN_HOSTS="cdn.example.net" \
-            -e ALLOWED_PATH_PATTERNS="/reports/*/print,/dashboard/*/print,/build/*" \
+            -e ALLOWED_PATH_PATTERNS="/,/reports/*/print,/dashboard/*/print,/build/*" \
             html2pdf:ssrf-test
           for i in $(seq 1 30); do
             curl -sf http://localhost:3001/health > /dev/null 2>&1 && break
@@ -146,10 +146,10 @@ jobs:
 
       - name: "SSRF: allowed host + path renders PDF"
         run: |
-          # example.com is in ALLOWED_HOSTS and renders real HTML
+          # example.com is in ALLOWED_HOSTS and '/' is in ALLOWED_PATH_PATTERNS
           curl -sf -X POST http://localhost:3001/render \
             -H 'Content-Type: application/json' \
-            -d '{"pages":[{"url":"https://example.com/reports/1/print"}]}' -o /tmp/ssrf-allowed.pdf
+            -d '{"pages":[{"url":"https://example.com/"}]}' -o /tmp/ssrf-allowed.pdf
           [ "$(file -b --mime-type /tmp/ssrf-allowed.pdf)" = "application/pdf" ] && echo "SSRF allowed host OK"
 
       - name: "SSRF: blocked host returns 422"

@@ -69,6 +69,11 @@ async function getBrowser() {
  * @returns {Promise<Buffer>}
  */
 async function renderPage(pageEntry, logger, pageIndex, timeout = config.renderer.timeout) {
+  // Validate navigation URL against SSRF allowlist before consuming a tab slot
+  if (pageEntry.url) {
+    await validateNavigation(pageEntry.url, logger);
+  }
+
   if (activeTabs >= config.renderer.concurrency) {
     logger.warn(
       { activeTabs, maxConcurrency: config.renderer.concurrency },
@@ -85,11 +90,6 @@ async function renderPage(pageEntry, logger, pageIndex, timeout = config.rendere
     { page: pageIndex + 1, source, target, activeTabs },
     'Rendering page',
   );
-
-  // Validate navigation URL against SSRF allowlist before opening the browser tab
-  if (pageEntry.url) {
-    await validateNavigation(pageEntry.url, logger);
-  }
 
   const pageStart = Date.now();
   const instance = await getBrowser();
