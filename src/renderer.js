@@ -6,6 +6,9 @@ import config from './config.js';
 let browser = null;
 let activeTabs = 0;
 
+/** @type {import('fastify').FastifyBaseLogger | null} */
+let appLogger = null;
+
 const DEFAULT_OPTIONS = {
   format: 'A4',
   printBackground: true,
@@ -18,6 +21,15 @@ const DEFAULT_OPTIONS = {
 };
 
 /**
+ * Set the application-level logger for non-request scoped operations.
+ *
+ * @param {import('fastify').FastifyBaseLogger} logger
+ */
+export function setLogger(logger) {
+  appLogger = logger;
+}
+
+/**
  * Launch or retrieve the shared browser instance.
  * Auto-reconnects if the browser was closed or crashed.
  */
@@ -26,13 +38,19 @@ async function getBrowser() {
     return browser;
   }
 
+  appLogger?.info('Launching Chrome browser');
+
   browser = await puppeteer.launch({
     headless: true,
     executablePath: config.chrome.executablePath,
     args: config.chrome.args,
   });
 
+  const version = await browser.version();
+  appLogger?.info({ version, pid: browser.process()?.pid }, 'Chrome browser ready');
+
   browser.on('disconnected', () => {
+    appLogger?.warn('Chrome browser disconnected — will reconnect on next request');
     browser = null;
   });
 
@@ -43,15 +61,30 @@ async function getBrowser() {
  * Render a page (from HTML string or URL) to a PDF buffer.
  *
  * @param {{ html?: string, url?: string, options?: object }} pageEntry
+ * @param {import('fastify').FastifyBaseLogger} logger
+ * @param {number} pageIndex
  * @param {number} timeout - Timeout in ms
  * @returns {Promise<Buffer>}
  */
-async function renderPage(pageEntry, timeout = config.renderer.timeout) {
+async function renderPage(pageEntry, logger, pageIndex, timeout = config.renderer.timeout) {
   if (activeTabs >= config.renderer.concurrency) {
+    logger.warn(
+      { activeTabs, maxConcurrency: config.renderer.concurrency },
+      'Concurrency limit reached — rejecting render',
+    );
     throw Object.assign(new Error('Too many concurrent renders'), { statusCode: 503 });
   }
 
   activeTabs++;
+
+  const source = pageEntry.url ? 'url' : 'html';
+  const target = pageEntry.url || `[html ${pageEntry.html.length} chars]`;
+  logger.info(
+    { page: pageIndex + 1, source, target, activeTabs },
+    'Rendering page',
+  );
+
+  const pageStart = Date.now();
   const instance = await getBrowser();
   const page = await instance.newPage();
 
@@ -60,18 +93,35 @@ async function renderPage(pageEntry, timeout = config.renderer.timeout) {
     const navigation = waitUntil || 'networkidle0';
 
     if (pageEntry.url) {
+      logger.debug({ url: pageEntry.url, waitUntil: navigation }, 'Navigating to URL');
       await page.goto(pageEntry.url, { waitUntil: navigation, timeout });
     } else {
+      logger.debug({ waitUntil: navigation, htmlLength: pageEntry.html.length }, 'Setting HTML content');
       await page.setContent(pageEntry.html, { waitUntil: navigation, timeout });
     }
 
     if (delay && delay > 0) {
+      logger.debug({ delay }, 'Applying post-navigation delay');
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
     const pdfOptions = { ...DEFAULT_OPTIONS, ...pdfOpts };
+    const buffer = await page.pdf(pdfOptions);
 
-    return await page.pdf(pdfOptions);
+    const durationMs = Date.now() - pageStart;
+    logger.info(
+      { page: pageIndex + 1, durationMs, sizeBytes: buffer.length },
+      'Page rendered',
+    );
+
+    return buffer;
+  } catch (err) {
+    const durationMs = Date.now() - pageStart;
+    logger.error(
+      { page: pageIndex + 1, source, durationMs, err: err.message },
+      'Page render failed',
+    );
+    throw err;
   } finally {
     await page.close();
     activeTabs--;
@@ -82,12 +132,16 @@ async function renderPage(pageEntry, timeout = config.renderer.timeout) {
  * Merge multiple PDF buffers into a single PDF.
  *
  * @param {Buffer[]} buffers
+ * @param {import('fastify').FastifyBaseLogger} logger
  * @returns {Promise<Buffer>}
  */
-async function mergePdfs(buffers) {
+async function mergePdfs(buffers, logger) {
   if (buffers.length === 1) {
     return buffers[0];
   }
+
+  logger.info({ documents: buffers.length }, 'Merging PDFs');
+  const mergeStart = Date.now();
 
   const merged = await PDFDocument.create();
 
@@ -100,7 +154,15 @@ async function mergePdfs(buffers) {
   }
 
   const bytes = await merged.save();
-  return Buffer.from(bytes);
+  const result = Buffer.from(bytes);
+
+  const durationMs = Date.now() - mergeStart;
+  logger.info(
+    { durationMs, totalPages: merged.getPageCount(), sizeBytes: result.length },
+    'PDFs merged',
+  );
+
+  return result;
 }
 
 /**
@@ -113,19 +175,23 @@ async function mergePdfs(buffers) {
 export async function render(pages, logger) {
   const startTime = Date.now();
 
-  logger.info({ pageCount: pages.length }, 'Starting render');
+  const sources = pages.map((p) => (p.url ? 'url' : 'html'));
+  logger.info({ pageCount: pages.length, sources }, 'Starting render');
 
   const buffers = [];
 
-  for (const page of pages) {
-    const buffer = await renderPage(page);
+  for (let i = 0; i < pages.length; i++) {
+    const buffer = await renderPage(pages[i], logger, i);
     buffers.push(buffer);
   }
 
-  const result = await mergePdfs(buffers);
+  const result = await mergePdfs(buffers, logger);
 
   const durationMs = Date.now() - startTime;
-  logger.info({ durationMs, pages: pages.length, sizeBytes: result.length }, 'Render complete');
+  logger.info(
+    { durationMs, pages: pages.length, sizeBytes: result.length },
+    'Render complete',
+  );
 
   return result;
 }
@@ -161,6 +227,7 @@ export async function healthCheck() {
  */
 export async function shutdown() {
   if (browser) {
+    appLogger?.info('Closing Chrome browser');
     await browser.close();
     browser = null;
   }

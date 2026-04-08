@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import config from './config.js';
-import { render, healthCheck, shutdown } from './renderer.js';
+import { render, healthCheck, shutdown, setLogger } from './renderer.js';
 import { renderSchema } from './schemas.js';
 
 const startedAt = Date.now();
@@ -11,6 +11,21 @@ const app = Fastify({
   },
   bodyLimit: config.bodyLimit,
 });
+
+// Share the app logger with the renderer for non-request scoped logs
+setLogger(app.log);
+
+app.log.info(
+  {
+    port: config.port,
+    host: config.host,
+    logLevel: config.logLevel,
+    bodyLimit: config.bodyLimit,
+    concurrency: config.renderer.concurrency,
+    timeout: config.renderer.timeout,
+  },
+  'Configuration loaded',
+);
 
 // ─── Routes ──────────────────────────────────────────────
 
