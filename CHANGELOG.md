@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/juniorfontenele/html2pdf/compare/v1.4.0...v2.0.0) (2026-05-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **security:** removed CDN_HOSTS and ALLOWED_PATH_PATTERNS env vars. Migration: drop them from your env. ALLOWED_HOSTS (with wildcards) and DNS-based dangerous-IP blocking remain and provide the actual SSRF defense.
+
+### Features
+
+* **security:** simplify SSRF model to host allowlist + dangerous-IP block ([805320d](https://github.com/juniorfontenele/html2pdf/commit/805320de042e78f3e46dbe1ead6786402a455c19))
+
 ## [1.4.0](https://github.com/juniorfontenele/html2pdf/compare/v1.3.0...v1.4.0) (2026-04-08)
 
 
