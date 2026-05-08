@@ -73,46 +73,6 @@ export function isAllowedHost(hostname, allowlist) {
   return allowlist.some((pattern) => matchesHostPattern(hostname, pattern));
 }
 
-/**
- * Check whether a hostname is a CDN host (skip path validation).
- *
- * @param {string} hostname
- * @returns {boolean}
- */
-export function isCdnHost(hostname) {
-  return config.security.cdnHosts.some((pattern) => matchesHostPattern(hostname, pattern));
-}
-
-// ─── Path matching ──────────────────────────────────────
-
-/**
- * Convert a simple glob pattern to a RegExp.
- * Supports '*' as a wildcard that matches any characters.
- *
- * @param {string} pattern
- * @returns {RegExp}
- */
-function globToRegex(pattern) {
-  const parts = pattern.split('*');
-  const regexStr = parts
-    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('.*');
-
-  return new RegExp(`^${regexStr}$`);
-}
-
-/**
- * Check whether a pathname matches any of the allowed path patterns.
- *
- * @param {string} pathname
- * @param {string[]} patterns
- * @returns {boolean}
- */
-export function isAllowedPath(pathname, patterns) {
-  if (patterns.length === 0) return true; // no restriction
-  return patterns.some((pattern) => globToRegex(pattern).test(pathname));
-}
-
 // ─── DNS resolution ─────────────────────────────────────
 
 /**
@@ -153,7 +113,7 @@ export async function resolveAndValidateIp(hostname) {
 /**
  * Validate a URL before allowing Puppeteer to navigate to it.
  *
- * Checks: protocol -> host allowlist -> DNS/IP safety -> path allowlist.
+ * Checks: protocol -> host allowlist -> DNS/IP safety.
  *
  * @param {string} rawUrl
  * @param {import('fastify').FastifyBaseLogger} logger
@@ -195,17 +155,8 @@ export async function validateNavigation(rawUrl, logger) {
     );
   }
 
-  // DNS resolution — reject dangerous IPs
+  // DNS resolution — reject dangerous IPs (cloud metadata, loopback)
   await resolveAndValidateIp(parsed.hostname);
-
-  // Path allowlist (skip for CDN hosts)
-  if (!isCdnHost(parsed.hostname) && !isAllowedPath(parsed.pathname, security.allowedPathPatterns)) {
-    logger.warn({ url: rawUrl, pathname: parsed.pathname }, 'SSRF: blocked path');
-    throw Object.assign(
-      new Error(`Blocked: path '${parsed.pathname}' is not in the allowed patterns`),
-      { statusCode: 422 },
-    );
-  }
 
   logger.debug({ url: rawUrl }, 'SSRF: navigation allowed');
 }
@@ -213,7 +164,7 @@ export async function validateNavigation(rawUrl, logger) {
 // ─── Request interception (for sub-resources) ───────────
 
 /**
- * Create a Puppeteer request interceptor that enforces the allowlist
+ * Create a Puppeteer request interceptor that enforces the host allowlist
  * on every sub-resource request (images, CSS, fonts, iframes, etc.).
  *
  * @param {import('fastify').FastifyBaseLogger} logger
@@ -256,13 +207,6 @@ export function createRequestInterceptor(logger) {
     // Host check
     if (!isAllowedHost(parsed.hostname, security.allowedHosts)) {
       logger.warn({ url, hostname: parsed.hostname }, 'SSRF: aborting sub-request (blocked host)');
-      await request.abort('blockedbyclient');
-      return;
-    }
-
-    // Path check (skip for CDN hosts)
-    if (!isCdnHost(parsed.hostname) && !isAllowedPath(parsed.pathname, security.allowedPathPatterns)) {
-      logger.warn({ url, pathname: parsed.pathname }, 'SSRF: aborting sub-request (blocked path)');
       await request.abort('blockedbyclient');
       return;
     }

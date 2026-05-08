@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { isDangerousIp, isAllowedHost, isAllowedPath } from '../src/security.js';
+import { isDangerousIp, isAllowedHost } from '../src/security.js';
 
 // ─── isDangerousIp ──────────────────────────────────────
 
@@ -77,44 +77,5 @@ describe('isAllowedHost', () => {
     assert.equal(isAllowedHost('app.myapp.com', list), true);
     assert.equal(isAllowedHost('cdn.example.net', list), true);
     assert.equal(isAllowedHost('evil.com', list), false);
-  });
-});
-
-// ─── isAllowedPath ──────────────────────────────────────
-
-describe('isAllowedPath', () => {
-  it('allows any path when patterns list is empty', () => {
-    assert.equal(isAllowedPath('/admin/secret', []), true);
-  });
-
-  it('matches report print path', () => {
-    assert.equal(isAllowedPath('/reports/42/print', ['/reports/*/print']), true);
-  });
-
-  it('matches dashboard print path', () => {
-    assert.equal(isAllowedPath('/dashboard/5/print', ['/dashboard/*/print']), true);
-  });
-
-  it('matches Vite build assets', () => {
-    assert.equal(isAllowedPath('/build/assets/app-abc123.css', ['/build/*']), true);
-    assert.equal(isAllowedPath('/build/assets/vendor-def456.js', ['/build/*']), true);
-  });
-
-  it('rejects paths not in patterns', () => {
-    const patterns = ['/reports/*/print', '/dashboard/*/print', '/build/*'];
-    assert.equal(isAllowedPath('/admin/secret', patterns), false);
-    assert.equal(isAllowedPath('/api/users', patterns), false);
-    assert.equal(isAllowedPath('/', patterns), false);
-  });
-
-  it('rejects path traversal attempts', () => {
-    assert.equal(isAllowedPath('/reports/../etc/passwd', ['/reports/*/print']), false);
-  });
-
-  it('works with multiple patterns', () => {
-    const patterns = ['/reports/*/print', '/dashboard/*/print', '/build/*'];
-    assert.equal(isAllowedPath('/reports/1/print', patterns), true);
-    assert.equal(isAllowedPath('/dashboard/99/print', patterns), true);
-    assert.equal(isAllowedPath('/build/manifest.json', patterns), true);
   });
 });

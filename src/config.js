@@ -49,21 +49,11 @@ const config = {
      * Hosts the browser is allowed to connect to.
      * Supports wildcards: '*.example.com' matches 'sub.example.com'.
      * Empty list = no restriction (backward-compatible).
+     *
+     * Applies to both the navigation URL (page.goto) and every sub-resource
+     * request issued by the page (images, CSS, fonts, iframes, scripts).
      */
     allowedHosts: parseList(process.env.ALLOWED_HOSTS),
-
-    /**
-     * CDN hosts that skip path validation (any path is allowed).
-     * Must also be present in allowedHosts.
-     */
-    cdnHosts: parseList(process.env.CDN_HOSTS),
-
-    /**
-     * Path patterns allowed for non-CDN hosts.
-     * Supports simple globs: '/build/*' matches '/build/assets/app.css'.
-     * Empty list = no path restriction.
-     */
-    allowedPathPatterns: parseList(process.env.ALLOWED_PATH_PATTERNS),
 
     /** Protocols the browser may navigate to. */
     allowedProtocols: isDev ? ['https:', 'http:'] : ['https:'],

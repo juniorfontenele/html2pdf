@@ -2,7 +2,7 @@
  * Integration tests for validateNavigation and createRequestInterceptor.
  *
  * These tests require ALLOWED_HOSTS to be set BEFORE the module loads.
- * Run via: ALLOWED_HOSTS="*.myapp.com,cdn.example.net" ... node --test tests/security-integration.test.js
+ * Run via: ALLOWED_HOSTS="*.myapp.com,cdn.example.net" node --test tests/security-integration.test.js
  *
  * The CI workflow sets these env vars in the test step.
  * The npm test script also sets them automatically.
@@ -20,15 +20,16 @@ const logger = {
 // ─── validateNavigation ─────────────────────────────────
 
 describe('validateNavigation (with ALLOWED_HOSTS configured)', () => {
-  it('allows URL matching host and path allowlist', async () => {
+  it('allows URL matching host allowlist', async () => {
     await validateNavigation('http://app.myapp.com/reports/42/print?signature=abc', logger);
   });
 
-  it('allows Vite asset paths', async () => {
+  it('allows any path on allowed host', async () => {
     await validateNavigation('http://app.myapp.com/build/assets/app-abc123.css', logger);
+    await validateNavigation('http://app.myapp.com/admin/anything', logger);
   });
 
-  it('allows CDN host without path restriction', async () => {
+  it('allows additional configured host', async () => {
     await validateNavigation('http://cdn.example.net/css?family=roboto:400', logger);
   });
 
@@ -59,17 +60,6 @@ describe('validateNavigation (with ALLOWED_HOSTS configured)', () => {
       (err) => {
         assert.equal(err.statusCode, 422);
         assert.match(err.message, /protocol/);
-        return true;
-      },
-    );
-  });
-
-  it('blocks path not in allowed patterns', async () => {
-    await assert.rejects(
-      () => validateNavigation('http://app.myapp.com/admin/secret', logger),
-      (err) => {
-        assert.equal(err.statusCode, 422);
-        assert.match(err.message, /path/);
         return true;
       },
     );
@@ -131,13 +121,19 @@ describe('createRequestInterceptor (with ALLOWED_HOSTS configured)', () => {
     assert.equal(req.getAction(), 'continue');
   });
 
-  it('allows request to permitted host and path', async () => {
+  it('allows request to permitted host', async () => {
     const req = mockRequest('http://app.myapp.com/build/assets/app.css');
     await interceptor(req);
     assert.equal(req.getAction(), 'continue');
   });
 
-  it('allows request to CDN host (any path)', async () => {
+  it('allows any path on permitted host (no path lock-down)', async () => {
+    const req = mockRequest('http://app.myapp.com/tenants/42/logo.png');
+    await interceptor(req);
+    assert.equal(req.getAction(), 'continue');
+  });
+
+  it('allows request to additional permitted host', async () => {
     const req = mockRequest('http://cdn.example.net/css?family=roboto:400');
     await interceptor(req);
     assert.equal(req.getAction(), 'continue');
@@ -151,12 +147,6 @@ describe('createRequestInterceptor (with ALLOWED_HOSTS configured)', () => {
 
   it('blocks request to cloud metadata endpoint', async () => {
     const req = mockRequest('http://169.254.169.254/latest/meta-data/');
-    await interceptor(req);
-    assert.equal(req.getAction(), 'abort:blockedbyclient');
-  });
-
-  it('blocks request to disallowed path on allowed host', async () => {
-    const req = mockRequest('http://app.myapp.com/admin/users');
     await interceptor(req);
     assert.equal(req.getAction(), 'abort:blockedbyclient');
   });

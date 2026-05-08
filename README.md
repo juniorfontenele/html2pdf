@@ -14,7 +14,7 @@ Stateless HTTP microservice that converts HTML to PDF using Google Chrome Stable
 - Per-page options (margins, header/footer, format, scale)
 - Per-page `skipPages` for discarding placeholder pages during merge
 - Tagged PDFs with link annotations preserved through merge
-- **SSRF protection** — host allowlist, path allowlist, protocol enforcement, dangerous IP blocking, and Puppeteer request interception
+- **SSRF protection** — host allowlist, protocol enforcement, dangerous IP blocking (cloud metadata + loopback), and Puppeteer request interception on every sub-resource
 - Structured JSON logging with UUID request ID correlation
 - Configurable concurrency and timeouts
 - Schema validation on all requests (Fastify + Ajv)
@@ -163,28 +163,25 @@ Environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `ALLOWED_HOSTS` | *(empty)* | Comma-separated list of allowed hosts. Supports wildcards (`*.example.com`). **Empty = no restriction** (backward-compatible). |
-| `CDN_HOSTS` | *(empty)* | Comma-separated CDN hosts that skip path validation (any path allowed). Must also be in `ALLOWED_HOSTS`. |
-| `ALLOWED_PATH_PATTERNS` | *(empty)* | Comma-separated glob patterns for allowed paths on non-CDN hosts (e.g. `/reports/*/print,/build/*`). **Empty = no path restriction**. |
+| `ALLOWED_HOSTS` | *(empty)* | Comma-separated list of allowed hosts. Supports wildcards (`*.example.com`). **Empty = no restriction** (backward-compatible). Applies to both navigation URL and every sub-resource request. |
 | `SSRF_PROTECTION` | *(enabled)* | Set to `disabled` to bypass all SSRF checks (emergency kill switch). |
 
 When `ALLOWED_HOSTS` is configured, the service enforces:
 
 1. **Protocol validation** — only `https:` in production (`http:` also allowed when `NODE_ENV=development`)
-2. **Host allowlist** — navigation and all sub-resource requests (images, CSS, fonts, iframes) are checked against the allowlist
+2. **Host allowlist** — navigation and every sub-resource request (images, CSS, fonts, iframes) are checked against the allowlist
 3. **Dangerous IP blocking** — DNS resolution is performed and IPs in `127.0.0.0/8`, `169.254.0.0/16`, `0.0.0.0`, and `::1` are rejected (prevents SSRF to cloud metadata endpoints and loopback services)
-4. **Path allowlist** — non-CDN hosts are restricted to specific path patterns (prevents access to unintended routes on allowed hosts)
-5. **Request interception** — Puppeteer intercepts every sub-resource request during page rendering and enforces the same allowlist (covers `<img>`, `<iframe>`, `<link>`, `<script>`, CSS `@import`, `@font-face`, etc.)
+4. **Request interception** — Puppeteer intercepts every sub-resource request during page rendering and enforces the same host allowlist (covers `<img>`, `<iframe>`, `<link>`, `<script>`, CSS `@import`, `@font-face`, etc.)
 
 Blocked navigation URLs return HTTP `422`. Blocked sub-resource requests are silently aborted (logged at `warn` level) without failing the overall render.
+
+> **Why no path-level allowlist?** Path validation was removed in `v2.0.0`. In practice it caused frequent operational pain (every favicon, manifest, sourcemap, multi-tenant asset path needed an entry) without meaningfully improving security on top of the host allowlist plus dangerous-IP block. The remaining defenses are sufficient for the threat model — see CHANGELOG `v2.0.0` for migration notes.
 
 **Example configuration:**
 
 ```bash
 docker run -p 3000:3000 \
   -e ALLOWED_HOSTS="*.example.com,cdn.example.net" \
-  -e CDN_HOSTS="cdn.example.net" \
-  -e ALLOWED_PATH_PATTERNS="/reports/*/print,/dashboard/*/print,/build/*" \
   jftecnologia/html2pdf
 ```
 
