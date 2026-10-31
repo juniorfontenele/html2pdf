@@ -42,13 +42,15 @@ app.post('/render', { schema: renderSchema }, async (request, reply) => {
     .send(pdf);
 });
 
-app.get('/health', async () => {
+app.get('/health', async (request, reply) => {
   const info = await healthCheck();
 
-  return {
+  // 503 when unhealthy: the Docker HEALTHCHECK and clients only look at the
+  // status code, so a 200 carrying `status: 'error'` was never seen by anyone.
+  return reply.status(info.status === 'ok' ? 200 : 503).send({
     ...info,
     uptime: Math.floor((Date.now() - startedAt) / 1000),
-  };
+  });
 });
 
 // ─── Error Handler ───────────────────────────────────────

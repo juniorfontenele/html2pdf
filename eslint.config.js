@@ -13,6 +13,7 @@ export default [
         URL: 'readonly',
         fetch: 'readonly',
         setTimeout: 'readonly',
+        clearTimeout: 'readonly',
       },
     },
     rules: {

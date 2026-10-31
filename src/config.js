@@ -41,6 +41,14 @@ const config = {
     timeout: parseInt(process.env.TIMEOUT || '30000', 10), // per page, ms
   },
 
+  health: {
+    /** When false, /health only checks the browser process (kill switch). */
+    renderProbe: process.env.HEALTH_RENDER_PROBE !== 'disabled',
+
+    /** Budget for the probe tab, ms. Keep it below the Docker HEALTHCHECK timeout (5s). */
+    probeTimeout: parseInt(process.env.HEALTH_PROBE_TIMEOUT || '4000', 10),
+  },
+
   security: {
     /** When false, all SSRF checks are bypassed (emergency kill switch). */
     enabled: process.env.SSRF_PROTECTION !== 'disabled',

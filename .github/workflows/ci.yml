@@ -52,8 +52,20 @@ jobs:
           curl -sf http://localhost:3000/health | node -e "
             const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
             if (d.status !== 'ok') process.exit(1);
-            console.log('Health OK -', d.version);
+            if (d.probe !== 'ok') { console.error('Expected probe ok, got', d.probe); process.exit(1); }
+            console.log('Health OK -', d.version, '- probe', d.probe);
           "
+
+      - name: "Health: 503 when the probe cannot finish"
+        run: |
+          docker run -d --name html2pdf-probe -p 3003:3000 -e HEALTH_PROBE_TIMEOUT=1 html2pdf:test
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3003/health || true)
+            [ "$CODE" != "000" ] && break
+            sleep 2
+          done
+          [ "$CODE" = "503" ] && echo "Health 503 OK" || { echo "Expected 503, got $CODE"; exit 1; }
+          docker rm -f html2pdf-probe
 
       - name: PDF from HTML
         run: |

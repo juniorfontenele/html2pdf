@@ -222,25 +222,87 @@ export async function render(pages, logger) {
   return result;
 }
 
+const PROBE_HTML = '<!doctype html><html><head><title>health</title></head><body></body></html>';
+
+/**
+ * Open a throwaway tab, load a minimal document and close it, within `timeout`.
+ *
+ * This is the same path a render takes (newPage + setContent). `browser.version()`
+ * only talks to the browser process: a browser left idle for days answers it
+ * instantly while its first real render times out, because the tab path was
+ * swapped out. Running this on every health check keeps that path warm and
+ * makes the check fail when rendering would fail.
+ *
+ * The tab is always closed — immediately if it exists when the probe ends, or as
+ * soon as `newPage()` resolves if the probe timed out before that.
+ *
+ * @param {{ newPage: () => Promise<import('puppeteer-core').Page> }} instance
+ * @param {number} timeout - Total budget in ms
+ */
+export async function probeBrowser(instance, timeout) {
+  let page = null;
+  let timer;
+
+  const work = instance.newPage().then((opened) => {
+    page = opened;
+
+    return opened.setContent(PROBE_HTML, { waitUntil: 'load', timeout });
+  });
+
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Health probe timed out after ${timeout} ms`)), timeout);
+  });
+
+  try {
+    await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
+
+    if (page) {
+      await page.close().catch(() => {});
+    } else {
+      work.then(() => page?.close(), () => page?.close()).catch(() => {});
+    }
+
+    work.catch(() => {});
+  }
+}
+
 /**
  * Check if the browser is healthy.
+ *
+ * Skips the render probe while renders are in flight: the tab path is warm by
+ * definition, and the probe would only compete with real work.
  */
 export async function healthCheck() {
   try {
     const instance = await getBrowser();
     const version = await instance.version();
 
+    let probe = 'disabled';
+
+    if (config.health.renderProbe) {
+      probe = activeTabs > 0 ? 'skipped' : 'ok';
+
+      if (probe === 'ok') {
+        await probeBrowser(instance, config.health.probeTimeout);
+      }
+    }
+
     return {
       status: 'ok',
       browser: 'connected',
+      probe,
       version,
       activeTabs,
       maxConcurrency: config.renderer.concurrency,
     };
   } catch (err) {
+    appLogger?.warn({ err: err.message }, 'Health check failed');
+
     return {
       status: 'error',
-      browser: 'disconnected',
+      browser: browser?.connected ? 'connected' : 'disconnected',
       error: err.message,
       activeTabs,
       maxConcurrency: config.renderer.concurrency,
