@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/juniorfontenele/html2pdf/compare/v2.0.0...v2.0.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **health:** probe a real tab and return 503 when unhealthy ([930e459](https://github.com/juniorfontenele/html2pdf/commit/930e459b78ee4ede0ac809bcebef5b4405ccf422))
+* **health:** probe a real tab and return 503 when unhealthy ([0713e59](https://github.com/juniorfontenele/html2pdf/commit/0713e593c01dd30d3b38dc4078517111a76d66c0))
+
 ## [2.0.0](https://github.com/juniorfontenele/html2pdf/compare/v1.4.0...v2.0.0) (2026-05-08)
 
 
