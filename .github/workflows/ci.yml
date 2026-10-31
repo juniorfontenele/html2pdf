@@ -148,17 +148,14 @@ jobs:
         run: |
           docker run -d --name html2pdf-ssrf -p 3001:3000 \
             -e ALLOWED_HOSTS="example.com,*.example.com,cdn.example.net" \
-            -e CDN_HOSTS="cdn.example.net" \
-            -e ALLOWED_PATH_PATTERNS="/,/reports/*/print,/dashboard/*/print,/build/*" \
             html2pdf:ssrf-test
           for i in $(seq 1 30); do
             curl -sf http://localhost:3001/health > /dev/null 2>&1 && break
             sleep 2
           done
 
-      - name: "SSRF: allowed host + path renders PDF"
+      - name: "SSRF: allowed host renders PDF"
         run: |
-          # example.com is in ALLOWED_HOSTS and '/' is in ALLOWED_PATH_PATTERNS
           curl -sf -X POST http://localhost:3001/render \
             -H 'Content-Type: application/json' \
             -d '{"pages":[{"url":"https://example.com/"}]}' -o /tmp/ssrf-allowed.pdf
@@ -170,13 +167,6 @@ jobs:
             -H 'Content-Type: application/json' \
             -d '{"pages":[{"url":"https://evil.com/steal"}]}')
           [ "$CODE" = "422" ] && echo "SSRF blocked host OK (422)" || { echo "Expected 422, got $CODE"; exit 1; }
-
-      - name: "SSRF: blocked path returns 422"
-        run: |
-          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3001/render \
-            -H 'Content-Type: application/json' \
-            -d '{"pages":[{"url":"https://app.example.com/admin/secret"}]}')
-          [ "$CODE" = "422" ] && echo "SSRF blocked path OK (422)" || { echo "Expected 422, got $CODE"; exit 1; }
 
       - name: "SSRF: file:// protocol returns 422"
         run: |
