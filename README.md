@@ -132,18 +132,23 @@ Each page requires either `html` (raw HTML string) or `url` (navigated by Chrome
 
 ### `GET /health`
 
-Returns service health status.
+Returns service health status: `200` when healthy, `503` when not.
+
+Besides asking the browser for its version, each check opens a throwaway tab, loads a minimal document and closes it (`probe`). That is the same path a render takes: a browser left idle for days still answers `version()` instantly while its first render times out, because the tab path was swapped out. Probing on every Docker health check (every 30 s) keeps it warm, and makes the check fail when rendering would fail. The probe is skipped while renders are in flight.
 
 ```json
 {
   "status": "ok",
   "browser": "connected",
+  "probe": "ok",
   "version": "HeadlessChrome/...",
   "activeTabs": 0,
   "maxConcurrency": 3,
   "uptime": 3600
 }
 ```
+
+`probe` is `ok`, `skipped` (renders in flight) or `disabled` (`HEALTH_RENDER_PROBE=disabled`). On failure the body carries `status: "error"` and `error`.
 
 ## Configuration
 
@@ -157,6 +162,8 @@ Environment variables:
 | `CHROME_PATH` | `/usr/bin/google-chrome-stable` | Chrome executable path |
 | `CONCURRENCY` | `3` | Max concurrent page renders |
 | `TIMEOUT` | `30000` | Per-page render timeout (ms) |
+| `HEALTH_RENDER_PROBE` | enabled | Set to `disabled` to make `/health` skip the probe tab |
+| `HEALTH_PROBE_TIMEOUT` | `4000` | Probe tab budget (ms); keep it below the Docker `HEALTHCHECK` timeout (5 s) |
 | `LOG_LEVEL` | `info` | Log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`) |
 
 ### SSRF Protection
