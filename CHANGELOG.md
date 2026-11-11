@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.2](https://github.com/juniorfontenele/html2pdf/compare/v2.0.1...v2.0.2) (2026-11-11)
+
+
+### Bug Fixes
+
+* **deps:** patch runtime security advisories ([fc2b86a](https://github.com/juniorfontenele/html2pdf/commit/fc2b86adec7e57062e5e078159de70a5e79bdf8a))
+* **deps:** patch runtime security advisories ([ab1373d](https://github.com/juniorfontenele/html2pdf/commit/ab1373d195b8310b07c27add7ec7434c1dcb4946))
+
 ## [2.0.1](https://github.com/juniorfontenele/html2pdf/compare/v2.0.0...v2.0.1) (2026-10-31)
 
 
